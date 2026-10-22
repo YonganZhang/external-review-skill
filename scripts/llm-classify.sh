@@ -1,6 +1,6 @@
 #!/bin/bash
 # llm-classify.sh — 外部 LLM wrapper 共用的失败分类
-# 用法: bash llm-classify.sh <log-file> <provider:codex|gemini|claude> <rc>
+# 用法: bash llm-classify.sh <log-file> <provider:codex|gemini|claude|deepseek> <rc>
 #
 # 输出格式（stdout，给 cc 读）:
 #   classification=<CATEGORY>
@@ -20,7 +20,7 @@
 #   7 = UNKNOWN_FAIL（rc!=0 但没匹配任何模式）
 #   8 = TOOLING / wrapper or CLI argument error
 
-LOG="${1:?用法: llm-classify.sh <log> <codex|gemini|claude> <rc>}"
+LOG="${1:?用法: llm-classify.sh <log> <codex|gemini|claude|deepseek> <rc>}"
 PROVIDER="${2:-unknown}"
 RC="${3:-0}"
 

@@ -87,7 +87,7 @@ def tmux(args):
 
 
 def doctor(args):
-    selected = ['gemini', 'codex', 'claude'] if args.provider in {'all', 'both'} else [args.provider]
+    selected = ['gemini', 'codex', 'claude', 'deepseek'] if args.provider == 'all' else (['gemini', 'codex', 'claude'] if args.provider == 'both' else [args.provider])
     checks = []
     def add(name, ok, detail):
         checks.append(dict(name=name, ok=ok, detail=detail))
@@ -110,7 +110,8 @@ def doctor(args):
         p = script_dir / name
         add(name, p.is_file() and os.access(p, os.X_OK), str(p))
     providers = []
-    specs = {'gemini': ('agy', ['--help'], ['--input-format', '--output-format', '--disable-slash-commands']),
+    specs = {'deepseek': ('dsh', ['--profile', 'headless', '--help'], ['--json', '--session-id']),
+             'gemini': ('agy', ['--help'], ['--input-format', '--output-format', '--disable-slash-commands']),
              'codex': ('codex', ['exec', '--help'], ['--model', '--sandbox', '--skip-git-repo-check']),
              'claude': ('claude', ['--help'], ['--print', '--model', '--effort', '--output-format', '--include-partial-messages', '--no-session-persistence'])}
     for provider in selected:
@@ -119,7 +120,7 @@ def doctor(args):
         row = dict(provider=provider, executable=executable, authentication='NOT_CHECKED', network='NOT_CHECKED', missing_flags=required[:])
         if executable:
             try:
-                proc = subprocess.run([executable, *help_args], capture_output=True, text=True, timeout=10)
+                proc = subprocess.run([executable, *help_args], capture_output=True, text=True, timeout=45 if provider == 'deepseek' else 10)
                 output = proc.stdout + proc.stderr
                 row['missing_flags'] = [flag for flag in required if flag not in output]
                 row['help_exit_code'] = proc.returncode
@@ -164,7 +165,7 @@ def main():
                     group.add_argument('--' + flag, dest='mode', action='store_const', const=flag)
                 group.add_argument('--last', dest='mode', action='store_const', const='result')
     p = sub.add_parser('doctor')
-    p.add_argument('provider', nargs='?', default='all', choices=['all', 'both', 'gemini', 'codex', 'claude'])
+    p.add_argument('provider', nargs='?', default='all', choices=['all', 'both', 'gemini', 'codex', 'claude', 'deepseek'])
     p.add_argument('--json', action='store_true')
     args = parser.parse_args()
     if args.command == 'doctor':

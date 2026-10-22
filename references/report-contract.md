@@ -8,7 +8,7 @@ runner 自动向 worker 注入实际 job、报告路径和此格式；调用者�
 # Foreign Aid Result
 
 JOB_ID: <actual job id>
-PROVIDER: <codex|gemini|claude>
+PROVIDER: <codex|gemini|claude|deepseek>
 COMPLETION_STATUS: <COMPLETE|FAILED|BLOCKED>
 ERROR_CLASS: <NONE|QUOTA|AUTH|NETWORK|TIMEOUT|TOOLING|MODEL_REJECT|MISSING_COMPLETION_MARKER|TMUX_DIED|OUTER_TIMEOUT|UNKNOWN>
 

@@ -35,6 +35,7 @@ SUMMARY_EMITTED=0
 SUMMARY_FD=1
 finish_summary() {
   local rc=$?
+  [ -z "${DEEPSEEK_KEY_FILE:-}" ] || rm -f -- "$DEEPSEEK_KEY_FILE"
   if [ "$JSON_MODE" = 1 ]; then
     python3 - "${JOB_ID:-}" "$PROVIDER" "${REPORT_DIR:-}" "$rc" >&3 <<'PYSUM'
 import json,sys
@@ -48,19 +49,20 @@ trap finish_summary EXIT
 usage() {
   cat >&2 <<'EOF'
 Usage:
-  llm-tmux-run.sh --provider <codex|gemini|claude> "<prompt>"
-  llm-tmux-run.sh --provider <codex|gemini|claude> --prompt-file <file>
+  llm-tmux-run.sh --provider <codex|gemini|claude|deepseek> "<prompt>"
+  llm-tmux-run.sh --provider <codex|gemini|claude|deepseek> --prompt-file <file>
 
 Options:
   --repo <path>       Project root for _reports/_foreign_aid (default: git root or cwd)
   --timeout <sec>     Override provider timeout
-  --deep              Hard or core question: Claude uses Opus (still lowest effort)
-  --gate              Pre-action review: Claude Opus + medium; Codex medium
+  --deep              Claude uses Opus/low; DeepSeek keeps its model with high effort
+  --gate              Pre-action review: Claude Opus + medium; Codex medium; DeepSeek high
   --model <name>      Explicit provider model; Gemini otherwise follows agy default
   --json              Emit one JSON summary on stdout; progress on stderr
   --permission-mode native|bypass  CLI permissions (default native)
 
 Models (fast by default; env overrides win):
+  deepseek LLM_DEEPSEEK_MODEL (deepseek-flash), LLM_DEEPSEEK_EFFORT (low; high with --deep/--gate)
   codex   LLM_CODEX_MODEL (gpt-6.1-sol), LLM_CODEX_EFFORT (low; medium with --gate)
   claude  LLM_CLAUDE_MODEL (sonnet; opus with --deep/--gate), LLM_CLAUDE_EFFORT (low; medium with --gate);
           a caller-set ANTHROPIC_MODEL is honoured when LLM_CLAUDE_MODEL is unset
@@ -99,7 +101,7 @@ done
 [ "$JSON_MODE" != 1 ] || exec 1>&2
 case "$PERMISSION_MODE" in native|bypass) ;; *) echo "invalid permission mode" >&2; exit 2 ;; esac
 [ -n "$PROVIDER" ] || { echo "provider required" >&2; usage; exit 2; }
-case "$PROVIDER" in codex|gemini|claude) ;; *) echo "bad provider: $PROVIDER" >&2; exit 2 ;; esac
+case "$PROVIDER" in codex|gemini|claude|deepseek) ;; *) echo "bad provider: $PROVIDER" >&2; exit 2 ;; esac
 
 if [ "$PROVIDER" = "$SELF_PROVIDER" ] && [ "${LLM_ALLOW_SELF_EXTERNAL:-0}" != "1" ]; then
   echo "🔴 Refusing self-provider external call: $SELF_PROVIDER -> $PROVIDER" >&2
@@ -123,6 +125,11 @@ fi
 REPO="$(cd "$REPO" && pwd)"
 
 case "$PROVIDER" in
+  deepseek)
+    BIN="dsh"
+    DEFAULT_TIMEOUT="${DEEPSEEK_TIMEOUT:-1200}"
+    PREFLIGHT_URL="https://api.deepseek.com/"
+    ;;
   codex)
     BIN="codex"
     DEFAULT_TIMEOUT="${CODEX_TIMEOUT:-1200}"
@@ -165,6 +172,17 @@ else
 fi
 CLAUDE_MODEL="${MODEL:-$CLAUDE_MODEL}"
 CLAUDE_EFFORT="${LLM_CLAUDE_EFFORT:-$default_effort}"
+DEEPSEEK_MODEL="${MODEL:-${LLM_DEEPSEEK_MODEL:-deepseek-flash}}"
+deepseek_default_effort=low
+if [ "$DEEP" = 1 ] || [ "$GATE" = 1 ]; then deepseek_default_effort=high; fi
+DEEPSEEK_EFFORT="${LLM_DEEPSEEK_EFFORT:-$deepseek_default_effort}"
+DEEPSEEK_ADAPTER="$SCRIPT_DIR/deepseek-run.py"
+DEEPSEEK_USAGE="$SCRIPT_DIR/deepseek-usage.py"
+DEEPSEEK_KEY_FILE=""
+if [ "$PROVIDER" = deepseek ]; then
+  case "$DEEPSEEK_MODEL" in deepseek-flash|deepseek-v4-pro) ;; *) echo "unsupported DeepSeek model" >&2; exit 2 ;; esac
+  case "$DEEPSEEK_EFFORT" in off|low|high|max) ;; *) echo "unsupported DeepSeek effort" >&2; exit 2 ;; esac
+fi
 for timing_name in TIMEOUT_SEC HEARTBEAT_SEC REPORT_STALE_SEC OUTER_GRACE_SEC FAILED_SESSION_TTL_SEC; do
   [[ "${!timing_name}" =~ ^[0-9]{1,8}$ ]] || { echo "$timing_name must be an integer" >&2; exit 2; }
   printf -v "$timing_name" '%d' "$((10#${!timing_name}))"
@@ -447,7 +465,23 @@ else
 fi
 chmod 600 "$PROMPT_RUN"
 
+# Transfer only the caller's DeepSeek key through a private, short-lived file.
+# Never put a credential in tmux arguments, metadata or the report tree.
+if [ "$PROVIDER" = deepseek ] && [ -n "${DEEPSEEK_API_KEY:-}" ]; then
+  DEEPSEEK_KEY_FILE="$(python3 - <<'PYKEY'
+import os,tempfile
+fd,path=tempfile.mkstemp(prefix='external-review-key-')
+with os.fdopen(fd,'w') as stream: stream.write(os.environ['DEEPSEEK_API_KEY'])
+print(path)
+PYKEY
+)"
+fi
 {
+  printf 'DEEPSEEK_MODEL=%q\n' "$DEEPSEEK_MODEL"
+  printf 'DEEPSEEK_EFFORT=%q\n' "$DEEPSEEK_EFFORT"
+  printf 'DEEPSEEK_ADAPTER=%q\n' "$DEEPSEEK_ADAPTER"
+  printf 'DEEPSEEK_USAGE=%q\n' "$DEEPSEEK_USAGE"
+  printf 'DEEPSEEK_KEY_FILE=%q\n' "$DEEPSEEK_KEY_FILE"
   printf 'REPORT_VALIDATOR=%q\n' "$REPORT_VALIDATOR"
   printf 'BIN_PATH=%q\n' "$BIN_PATH"
   printf 'PERMISSION_MODE=%q\n' "$PERMISSION_MODE"
@@ -545,6 +579,19 @@ EOF
 run_provider() {
   cd "$REPO"
   case "$PROVIDER" in
+    deepseek)
+      local key_args=() deepseek_rc
+      [ -z "$DEEPSEEK_KEY_FILE" ] || key_args=(--key-file "$DEEPSEEK_KEY_FILE")
+      timeout --kill-after=5s "$TIMEOUT_SEC" python3 "$DEEPSEEK_ADAPTER" \
+        --bin "$BIN_PATH" --repo "$REPO" --prompt-file "$PROMPT_RUN" --report-dir "$REPORT_DIR" \
+        --model "$DEEPSEEK_MODEL" --effort "$DEEPSEEK_EFFORT" --permission-mode "$PERMISSION_MODE" "${key_args[@]}"
+      deepseek_rc=$?
+      if [ -f "$REPORT_DIR/deepseek-events.jsonl" ]; then
+        python3 "$DEEPSEEK_USAGE" --events "$REPORT_DIR/deepseek-events.jsonl" --model "$DEEPSEEK_MODEL" \
+          --out "$REPORT_DIR/deepseek-usage.json" || event "usage_unavailable" "DeepSeek usage could not be parsed"
+      fi
+      return "$deepseek_rc"
+      ;;
     codex)
       local permission_args=(-s workspace-write)
       [ "$PERMISSION_MODE" != bypass ] || permission_args=(--dangerously-bypass-approvals-and-sandbox)
@@ -639,6 +686,7 @@ PYINPUT
 
 write_status "RUNNING" "IN_PROGRESS" "tmux worker started"
 case "$PROVIDER" in
+  deepseek) event "model_start" "provider=$PROVIDER model=$DEEPSEEK_MODEL effort=$DEEPSEEK_EFFORT" ;;
   codex) event "model_start" "provider=$PROVIDER model=$CODEX_MODEL effort=$CODEX_EFFORT" ;;
   claude) event "model_start" "provider=$PROVIDER model=$CLAUDE_MODEL effort=$CLAUDE_EFFORT" ;;
   *) event "model_start" "provider=$PROVIDER" ;;
@@ -701,6 +749,9 @@ do
   add_tmux_env "$env_name"
 done
 case "$PROVIDER" in
+  deepseek)
+    TMUX_ENV_ARGS+=(-e "DEEPSEEK_API_KEY=")
+    ;;
   codex)
     for env_name in OPENAI_API_KEY CODEX_API_KEY CODEX_HOME; do add_tmux_env "$env_name"; done
     ;;

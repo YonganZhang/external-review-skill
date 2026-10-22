@@ -19,7 +19,9 @@ class ReviewTests(unittest.TestCase):
         self.assertEqual(module.select_providers("codex", None), ["claude", "gemini"])
         self.assertEqual(module.select_providers("claude", None), ["codex", "gemini"])
         self.assertEqual(module.select_providers("unknown", "gemini"), ["gemini"])
-        for host, names in [("unknown", None), ("codex", "codex"), ("claude", "gemini,gemini"), ("claude", "bogus")]:
+        self.assertEqual(module.select_providers("codex", "deepseek"), ["deepseek"])
+        self.assertEqual(module.select_providers("gemini", None), ["claude", "codex"])
+        for host, names in [("unknown", None), ("deepseek", None), ("deepseek", "deepseek"), ("codex", "codex"), ("claude", "gemini,gemini"), ("claude", "bogus")]:
             with self.assertRaises(ValueError):
                 module.select_providers(host, names)
 

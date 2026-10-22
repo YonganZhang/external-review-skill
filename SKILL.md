@@ -1,6 +1,6 @@
 ---
 name: share-external-llm
-description: "调用 Claude、Codex 或 Gemini 外援独立审查并回收报告。泛称外援时选择主控之外两家；点名时只调指定者。普通审查和原生子智能体自审不触发。"
+description: "调用 Claude、Codex、Gemini 或 DeepSeek 外援独立审查并回收报告。泛称外援时从前三家选主控之外两家；点名时只调指定者。普通审查和原生子智能体自审不触发。"
 ---
 
 # 外援审查
@@ -15,6 +15,8 @@ description: "调用 Claude、Codex 或 Gemini 外援独立审查并回收报告
 | 点名一家或组合 | 只调用指定者，使用 `--providers` |
 | 普通审查、自审 | 当前宿主直接审查；不启动外部 CLI |
 | 指定当前宿主自身 | 原生自审；不称为跨模型外援 |
+
+DeepSeek 只在点名时调用（`--providers deepseek`），使用官方 Harness；安装与计费见 [DeepSeek](references/deepseek.md)。DeepSeek 宿主必须显式指定外援。
 
 宿主未知时显式指定 `--host`；不能从待审文件推断。缺少一家服务时如实报告，不能擅自换服务、账号或付费方式。
 

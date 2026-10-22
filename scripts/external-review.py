@@ -11,7 +11,8 @@ import subprocess
 import sys
 import uuid
 
-PROVIDERS = ("claude", "codex", "gemini")
+DEFAULT_PROVIDERS = ("claude", "codex", "gemini")
+PROVIDERS = (*DEFAULT_PROVIDERS, "deepseek")
 SCRIPTS = Path(__file__).resolve().parent
 REVIEW_INSTRUCTIONS = b"""# Independent review
 
@@ -42,13 +43,13 @@ def select_providers(host, explicit):
     if explicit is not None:
         selected = [item.strip() for item in explicit.split(",")]
         if not selected or any(name not in PROVIDERS for name in selected):
-            raise ValueError("--providers must be a comma-separated selection of claude,codex,gemini")
+            raise ValueError("--providers must be a comma-separated selection of claude,codex,gemini,deepseek")
         if len(set(selected)) != len(selected):
             raise ValueError("Each provider must appear only once")
     else:
-        if host not in PROVIDERS:
+        if host not in DEFAULT_PROVIDERS:
             raise ValueError("Host unknown: set --host or name --providers explicitly")
-        selected = [name for name in PROVIDERS if name != host]
+        selected = [name for name in DEFAULT_PROVIDERS if name != host]
     if host in selected:
         raise ValueError("The current host is self-review; select external providers instead")
     return selected
